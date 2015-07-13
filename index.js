@@ -1,6 +1,6 @@
 var file     = require('./lib/weatherfile');
 var synaptic = require('synaptic');
-var n = -1, i, numBack = 72, numForward = 24, steepness = 0.0475;
+var n = -1, i, numBack = 72, numForward = 24, steepness = 0.0425;
 
 var stream  = file.getStream();
 var network = new synaptic.Architect.Perceptron(numBack * 3, numBack * 2, numBack, 1);
@@ -21,9 +21,9 @@ stream.on('data', function(_data) {
 
   if (n > numBack) {
     for (i = numBack-1; i >= 0; i--) {
-      teachData[n].input.unshift(Math.round(teachData[i].data[7]  * 10) / 10); // Hum
-      teachData[n].input.unshift(Math.round(teachData[i].data[8]  * 10) / 10); // Temp
-      teachData[n].input.unshift(Math.round(teachData[i].data[11] * 10) / 10); // Abs press
+      teachData[n].input.unshift(parseFloat(teachData[i].data[7])); // Hum
+      teachData[n].input.unshift(parseFloat(teachData[i].data[8])); // Temp
+      teachData[n].input.unshift(parseFloat(teachData[i].data[11])); // Abs press
     }
   }
 
@@ -45,35 +45,50 @@ function logit (k) {
 }
 
 //
-var rate = 0.15;
+var rate = 0.1, runs = 1;
+var sumDiff = [];
+
+function avgDiff () {
+  var res = 0.0, n = sumDiff.length;
+  while (n) {
+    res += sumDiff[--n];
+  }
+  return res / sumDiff.length;
+}
+
+function medianDiff () {
+  return sumDiff.slice().sort()[Math.floor(sumDiff.length/2)];
+}
+
 stream.on('finish', function() {
-  var sumDiff = 0.0;
   var trainingSet = teachData.filter(function(d) {
     return d.output && d.input.length;
   });
-  trainingSet.forEach(function(d, idx, arr) {
-    var output    = network.activate(d.input);
-    var predicted = tempLogit(output[0]);
-    var actual    = tempLogit(d.output[0]);
-    var diff      = Math.round(predicted - actual);
-    network.propagate(rate, d.output);
+  while (runs) {
+    runs--;
+    trainingSet.forEach(function(d, idx, arr) {
+      var output    = network.activate(d.input);
+      var predicted = tempLogit(output[0]);
+      var actual    = tempLogit(d.output[0]);
+      var diff      = Math.abs(predicted - actual);
+      sumDiff.push(diff);
+      network.propagate(rate, d.output);
 
-    //console.log('\033[2J');
-    if ((arr.length-idx < 100) || idx % 100 === 0) {
-      console.log('------------------------------------');
-      console.log('Index:     ' + idx);
-      console.log('Predicted: ' + predicted);
-      console.log('Actual:    ' + actual);
-      //console.log('Diff:      ' + diff);
-      console.log('------------------------------------');
-    }
-
-    if(arr.length-idx < 1000) {
-      sumDiff += diff;
-    }
-  });
-
-  console.log(sumDiff / 1000);
+      //console.log('\033[2J');
+      if (idx % 100 === 0) {
+        console.log('------------------------------------');
+        console.log('Index:       ' + idx);
+        console.log('Predicted:   ' + predicted);
+        console.log('Actual:      ' + actual);
+        console.log('Diff:        ' + diff);
+        console.log('Avg diff:    ' + avgDiff());
+        console.log('Med diff:    ' + medianDiff());
+        console.log('------------------------------------');
+        sumDiff = [];
+      }
+    });
+  }
+});
 
   //console.log(trainingSet[0].input);
 
@@ -101,7 +116,6 @@ stream.on('finish', function() {
   //  console.log(output);
   //});
   //console.log('Finished');
-});
 
 //layer_defs.push({
 //  type: 'input',
